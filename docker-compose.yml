@@ -1,0 +1,18 @@
+version: '3.8'
+
+services:
+  positioning-service:
+    build: ./positioning_service
+    ports:
+      - "8001:8082"
+    volumes:
+      - ./positioning_service:/app
+    restart: unless-stopped
+
+  access-control-service:
+    build: ./access_control_service
+    ports:
+      - "8002:8084"
+    volumes:
+      - ./access_control_service:/app
+    restart: unless-stopped

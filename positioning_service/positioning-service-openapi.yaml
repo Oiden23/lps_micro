@@ -1,0 +1,394 @@
+openapi: 3.0.3
+info:
+  title: Positioning Service API
+  description: |
+    Микросервис для приема сырых данных о расстояниях до меток, вычисления координат методом трилатерации и предоставления доступа к текущим и историческим позициям.
+    Является основным источником данных о местоположении в системе.
+  version: 1.0.0
+  contact:
+    name: Команда разработки
+    email: dev@rtls.example.com
+
+servers:
+  - url: http://localhost:8082/api/v1
+    description: Локальный сервер разработки
+  - url: https://positioning.rtls.example.com/api/v1
+    description: Продуктивный сервер
+
+tags:
+  - name: Measurements
+    description: Прием "сырых" данных измерений от базовых станций (анкеров)
+  - name: Positions
+    description: Получение текущих и исторических координат объектов
+  - name: Anchors
+    description: Управление конфигурацией базовых станций (анкеров)
+  - name: Health
+    description: Проверка работоспособности сервиса
+
+paths:
+
+  # ==================== Measurements: Прием данных ====================
+  /measurements:
+    post:
+      tags:
+        - Measurements
+      summary: Прием пакета измерений от анкеров
+      description: >
+        Основной endpoint для загрузки данных с базовых станций.
+        Принимает массив измерений расстояний от анкеров до меток (tags).
+        Сервис асинхронно обрабатывает их, вычисляет координаты методом трилатерации и обновляет кэш текущих позиций.
+      operationId: submitMeasurements
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/MeasurementBatch'
+            examples:
+              standardBatch:
+                summary: Стандартный пакет измерений
+                value:
+                  gateway_id: "gateway-001"
+                  timestamp: "2023-11-28T14:30:00Z"
+                  measurements: [
+                    { anchor_id: "anchor-1", tag_id: "tag-employee-123", distance_m: 12.5 },
+                    { anchor_id: "anchor-2", tag_id: "tag-employee-123", distance_m: 8.2 },
+                    { anchor_id: "anchor-3", tag_id: "tag-employee-456", distance_m: 15.1 }
+                  ]
+      responses:
+        '202':
+          description: Пакет измерений успешно принят в обработку.
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  message:
+                    type: string
+                    example: "Measurements accepted for processing"
+                  batch_id:
+                    type: string
+                    format: uuid
+                    example: "123e4567-e89b-12d3-a456-426614174000"
+        '400':
+          description: Неверный формат или некорректные данные в запросе.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '422':
+          description: Данные не прошли валидацию (например, отрицательное расстояние).
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ValidationError'
+
+  # ==================== Positions: Получение координат ====================
+  /positions/current/{tag_id}:
+    get:
+      tags:
+        - Positions
+      summary: Получение последней вычисленной позиции метки
+      description: Возвращает последние известные координаты метки (сотрудника или объекта) из кэша сервиса.
+      operationId: getCurrentPosition
+      parameters:
+        - name: tag_id
+          in: path
+          required: true
+          schema:
+            type: string
+          description: Уникальный идентификатор метки (например, `tag-employee-123`)
+      responses:
+        '200':
+          description: Успешный запрос. Возвращает позицию.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Position'
+        '404':
+          description: Позиция для указанной метки не найдена (метка не отслеживается или данные устарели).
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+
+  /positions/history/{tag_id}:
+    get:
+      tags:
+        - Positions
+      summary: Получение истории перемещений метки за период
+      description: >
+        Возвращает массив записей о позициях метки за указанный временной интервал.
+        Данные извлекаются из постоянного хранилища (БД).
+      operationId: getPositionHistory
+      parameters:
+        - name: tag_id
+          in: path
+          required: true
+          schema:
+            type: string
+          description: Уникальный идентификатор метки.
+        - name: start_time
+          in: query
+          required: true
+          schema:
+            type: string
+            format: date-time
+          description: Начало периода (включительно) в формате ISO 8601.
+        - name: end_time
+          in: query
+          required: true
+          schema:
+            type: string
+            format: date-time
+          description: Конец периода (включительно) в формате ISO 8601.
+        - name: limit
+          in: query
+          required: false
+          schema:
+            type: integer
+            default: 1000
+            maximum: 10000
+          description: Максимальное количество записей для возврата.
+      responses:
+        '200':
+          description: Успешный запрос. Возвращает массив позиций.
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/Position'
+        '400':
+          description: Неверные параметры запроса (например, `end_time` раньше `start_time`).
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+
+  # ==================== Anchors: Управление базовыми станциями ====================
+  /anchors:
+    get:
+      tags:
+        - Anchors
+      summary: Получение списка всех зарегистрированных анкеров
+      description: Возвращает конфигурацию всех базовых станций, включая их установленные координаты в системе.
+      operationId: getAllAnchors
+      responses:
+        '200':
+          description: Успешный запрос.
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/Anchor'
+    post:
+      tags:
+        - Anchors
+      summary: Регистрация нового анкера или обновление его координат
+      description: Добавляет новую базовую станцию в систему или обновляет координаты существующей.
+      operationId: createOrUpdateAnchor
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/Anchor'
+      responses:
+        '201':
+          description: Анкер успешно создан или обновлен.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Anchor'
+        '400':
+          description: Некорректные данные анкера.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+
+  /anchors/{anchor_id}:
+    get:
+      tags:
+        - Anchors
+      summary: Получение информации о конкретном анкере
+      description: Возвращает детальную конфигурацию анкера по его ID.
+      operationId: getAnchorById
+      parameters:
+        - name: anchor_id
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        '200':
+          description: Успешный запрос.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Anchor'
+        '404':
+          description: Анкер с указанным ID не найден.
+    delete:
+      tags:
+        - Anchors
+      summary: Удаление анкера из системы
+      description: Удаляет конфигурацию анкера. Используйте с осторожностью.
+      operationId: deleteAnchor
+      parameters:
+        - name: anchor_id
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        '204':
+          description: Анкер успешно удален (тело ответа отсутствует).
+        '404':
+          description: Анкер с указанным ID не найден.
+
+components:
+  schemas:
+    # --- Основные модели данных ---
+    MeasurementBatch:
+      type: object
+      required:
+        - gateway_id
+        - timestamp
+        - measurements
+      properties:
+        gateway_id:
+          type: string
+          description: Идентификатор шлюза, отправившего пакет.
+        timestamp:
+          type: string
+          format: date-time
+          description: Время сбора измерений на шлюзе (ISO 8601).
+        measurements:
+          type: array
+          minItems: 3
+          description: Массив измерений. Для трилатерации требуется минимум 3 измерения от разных анкеров.
+          items:
+            $ref: '#/components/schemas/SingleMeasurement'
+
+    SingleMeasurement:
+      type: object
+      required:
+        - anchor_id
+        - tag_id
+        - distance_m
+      properties:
+        anchor_id:
+          type: string
+          description: ID анкера (базовой станции), выполнившего измерение.
+        tag_id:
+          type: string
+          description: ID метки (объекта/сотрудника), до которой измерено расстояние.
+        distance_m:
+          type: number
+          format: float
+          minimum: 0
+          description: Измеренное расстояние в метрах.
+
+    Position:
+      type: object
+      required:
+        - tag_id
+        - x
+        - y
+        - z
+        - timestamp
+        - accuracy
+      properties:
+        tag_id:
+          type: string
+        x:
+          type: number
+          format: float
+          description: Координата X в метрах (в локальной системе координат предприятия).
+        y:
+          type: number
+          format: float
+          description: Координата Y в метрах.
+        z:
+          type: number
+          format: float
+          description: Координата Z в метрах (высота/этаж). Может быть 0 для 2D-систем.
+        timestamp:
+          type: string
+          format: date-time
+          description: Время вычисления координат.
+        accuracy:
+          type: number
+          format: float
+          minimum: 0
+          description: Расчетная погрешность в метрах (например, на основе геометрии анкеров).
+        source_measurements:
+          type: array
+          description: Массив сырых измерений, использованных для расчета (включается, если запрошено).
+          items:
+            $ref: '#/components/schemas/SingleMeasurement'
+
+    Anchor:
+      type: object
+      required:
+        - anchor_id
+        - x
+        - y
+        - z
+        - is_active
+      properties:
+        anchor_id:
+          type: string
+          description: Уникальный аппаратный или логический идентификатор анкера.
+        x:
+          type: number
+          format: float
+          description: Фиксированная координата X анкера в системе.
+        y:
+          type: number
+          format: float
+        z:
+          type: number
+          format: float
+        description:
+          type: string
+          description: Человеко-читаемое описание местоположения (например, "Цех №1, Северная стена").
+        is_active:
+          type: boolean
+          description: Флаг, указывающий, используется ли анкер в данный момент для вычислений.
+        last_calibration:
+          type: string
+          format: date-time
+          description: Дата последней калибровки.
+
+    # --- Модели ошибок ---
+    Error:
+      type: object
+      properties:
+        error_code:
+          type: string
+          example: "POSITION_NOT_FOUND"
+        message:
+          type: string
+          example: "Position for tag 'tag-123' not found in cache or database."
+        timestamp:
+          type: string
+          format: date-time
+
+    ValidationError:
+      allOf:
+        - $ref: '#/components/schemas/Error'
+        - type: object
+          properties:
+            details:
+              type: array
+              items:
+                type: object
+                properties:
+                  field:
+                    type: string
+                  error:
+                    type: string

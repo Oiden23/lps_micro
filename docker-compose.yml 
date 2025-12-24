@@ -1,0 +1,126 @@
+# project/docker-compose.yml
+version: '3.8'
+
+services:
+  # База данных для позиционирования
+  positioning-db:
+    image: postgres:15-alpine
+    container_name: positioning-postgres
+    environment:
+      POSTGRES_DB: positioning
+      POSTGRES_USER: positioning_user
+      POSTGRES_PASSWORD: positioning_pass
+    volumes:
+      - positioning-data:/var/lib/postgresql/data
+    ports:
+      - "5432:5432"
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U positioning_user"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  # База данных для аналитики
+  analytics-db:
+    image: postgres:15-alpine
+    container_name: analytics-postgres
+    environment:
+      POSTGRES_DB: analytics
+      POSTGRES_USER: analytics_user
+      POSTGRES_PASSWORD: analytics_pass
+    volumes:
+      - analytics-data:/var/lib/postgresql/data
+    ports:
+      - "5433:5432"
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U analytics_user"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  # Микросервис позиционирования
+  positioning-service:
+    build:
+      context: ./positioning-service
+      dockerfile: Dockerfile
+    container_name: positioning-service
+    environment:
+      DATABASE_URL: "postgresql://positioning_user:positioning_pass@positioning-db:5432/positioning"
+      REDIS_URL: "redis://redis:6379/0"
+    ports:
+      - "8082:8082"
+    depends_on:
+      positioning-db:
+        condition: service_healthy
+      redis:
+        condition: service_started
+    volumes:
+      - ./positioning-service:/app
+    command: >
+      sh -c "uvicorn app.main:app --host 0.0.0.0 --port 8082 --reload"
+
+  # Микросервис аналитики
+  analytics-service:
+    build:
+      context: ./analytics-service
+      dockerfile: Dockerfile
+    container_name: analytics-service
+    environment:
+      DATABASE_URL: "postgresql://analytics_user:analytics_pass@analytics-db:5432/analytics"
+      POSITIONING_SERVICE_URL: "http://positioning-service:8082"
+      REDIS_URL: "redis://redis:6379/1"
+    ports:
+      - "8083:8083"
+    depends_on:
+      analytics-db:
+        condition: service_healthy
+      positioning-service:
+        condition: service_started
+      redis:
+        condition: service_started
+    volumes:
+      - ./analytics-service:/app
+    command: >
+      sh -c "uvicorn app.main:app --host 0.0.0.0 --port 8083 --reload"
+
+  # Redis для кэширования
+  redis:
+    image: redis:7-alpine
+    container_name: redis-cache
+    ports:
+      - "6379:6379"
+    volumes:
+      - redis-data:/data
+    command: redis-server --appendonly yes
+
+  # Nginx для проксирования (опционально)
+  nginx:
+    image: nginx:alpine
+    container_name: nginx-proxy
+    ports:
+      - "80:80"
+      - "443:443"
+    volumes:
+      - ./nginx/nginx.conf:/etc/nginx/nginx.conf
+      - ./nginx/conf.d:/etc/nginx/conf.d
+    depends_on:
+      - positioning-service
+      - analytics-service
+
+  # pgAdmin для управления БД (опционально)
+  pgadmin:
+    image: dpage/pgadmin4
+    container_name: pgadmin
+    environment:
+      PGADMIN_DEFAULT_EMAIL: admin@rtls.com
+      PGADMIN_DEFAULT_PASSWORD: admin
+    ports:
+      - "5050:80"
+    depends_on:
+      - positioning-db
+      - analytics-db
+
+volumes:
+  positioning-data:
+  analytics-data:
+  redis-data:

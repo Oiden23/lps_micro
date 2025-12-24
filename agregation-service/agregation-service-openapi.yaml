@@ -1,0 +1,663 @@
+openapi: 3.0.3
+info:
+  title: Positioning Analytics Service API
+  description: |
+    Микросервис для агрегации и анализа данных о позициях меток.
+    Предоставляет аналитику по перемещениям, статистику использования системы и метрики производительности.
+  version: 1.0.0
+  contact:
+    name: Команда аналитики
+    email: analytics@rtls.example.com
+
+servers:
+  - url: http://localhost:8083/api/v1
+    description: Локальный сервер разработки
+  - url: https://analytics.positioning.rtls.example.com/api/v1
+    description: Продуктивный сервер
+
+tags:
+  - name: Analytics
+    description: Аналитические данные и статистика
+  - name: Reports
+    description: Генерация отчетов
+  - name: Health
+    description: Проверка работоспособности сервиса
+
+paths:
+
+  # ==================== Analytics: Базовая статистика ====================
+  /analytics/overview:
+    get:
+      tags:
+        - Analytics
+      summary: Общая статистика системы
+      description: >
+        Возвращает общую статистику по системе - количество активных меток,
+        анкеров, среднюю точность позиционирования и другие ключевые метрики.
+      operationId: getSystemOverview
+      parameters:
+        - name: time_range
+          in: query
+          required: false
+          schema:
+            type: string
+            enum: [last_hour, last_24h, last_7d, last_30d, all_time]
+            default: last_24h
+          description: Временной диапазон для анализа данных
+      responses:
+        '200':
+          description: Успешный запрос.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SystemOverview'
+        '500':
+          description: Ошибка сервера при получении данных.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+
+  /analytics/tags/{tag_id}/stats:
+    get:
+      tags:
+        - Analytics
+      summary: Статистика по конкретной метке
+      description: Возвращает аналитику перемещений для конкретной метки за указанный период.
+      operationId: getTagStatistics
+      parameters:
+        - name: tag_id
+          in: path
+          required: true
+          schema:
+            type: string
+          description: Уникальный идентификатор метки
+        - name: start_time
+          in: query
+          required: true
+          schema:
+            type: string
+            format: date-time
+          description: Начало периода анализа
+        - name: end_time
+          in: query
+          required: true
+          schema:
+            type: string
+            format: date-time
+          description: Конец периода анализа
+        - name: include_path
+          in: query
+          required: false
+          schema:
+            type: boolean
+            default: false
+          description: Включать ли подробный путь перемещений
+      responses:
+        '200':
+          description: Успешный запрос.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/TagStatistics'
+        '404':
+          description: Данные по метке не найдены.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '400':
+          description: Неверные параметры запроса.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+
+  /analytics/zones/occupancy:
+    get:
+      tags:
+        - Analytics
+      summary: Заполненность зон
+      description: >
+        Возвращает статистику по количеству меток в различных зонах
+        за указанный период времени. Зоны определяются конфигурацией системы.
+      operationId: getZoneOccupancy
+      parameters:
+        - name: start_time
+          in: query
+          required: true
+          schema:
+            type: string
+            format: date-time
+          description: Начало периода анализа
+        - name: end_time
+          in: query
+          required: false
+          schema:
+            type: string
+            format: date-time
+          description: Конец периода анализа (по умолчанию - текущее время)
+        - name: aggregation
+          in: query
+          required: false
+          schema:
+            type: string
+            enum: [hourly, daily, total]
+            default: total
+          description: Уровень агрегации данных
+      responses:
+        '200':
+          description: Успешный запрос.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ZoneOccupancy'
+
+  /analytics/movement/heatmap:
+    get:
+      tags:
+        - Analytics
+      summary: Тепловая карта перемещений
+      description: >
+        Генерирует тепловую карту активности меток в системе.
+        Возвращает данные в формате, пригодном для визуализации.
+      operationId: getMovementHeatmap
+      parameters:
+        - name: start_time
+          in: query
+          required: true
+          schema:
+            type: string
+            format: date-time
+          description: Начало периода анализа
+        - name: end_time
+          in: query
+          required: true
+          schema:
+            type: string
+            format: date-time
+          description: Конец периода анализа
+        - name: grid_size
+          in: query
+          required: false
+          schema:
+            type: integer
+            default: 10
+            minimum: 5
+            maximum: 50
+          description: Размер сетки для тепловой карты (количество ячеек по оси)
+        - name: tag_ids
+          in: query
+          required: false
+          schema:
+            type: array
+            items:
+              type: string
+          description: Фильтр по конкретным меткам (если не указано - все метки)
+          style: form
+          explode: false
+      responses:
+        '200':
+          description: Успешный запрос.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HeatmapData'
+
+  # ==================== Reports: Генерация отчетов ====================
+  /reports/daily-summary:
+    get:
+      tags:
+        - Reports
+      summary: Ежедневный отчет
+      description: Генерирует сводный отчет за день с основной статистикой.
+      operationId: generateDailyReport
+      parameters:
+        - name: date
+          in: query
+          required: false
+          schema:
+            type: string
+            format: date
+          description: Дата отчета в формате YYYY-MM-DD (по умолчанию - вчера)
+        - name: format
+          in: query
+          required: false
+          schema:
+            type: string
+            enum: [json, csv, pdf]
+            default: json
+          description: Формат отчета
+      responses:
+        '200':
+          description: Отчет успешно сгенерирован.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/DailyReport'
+            text/csv:
+              schema:
+                type: string
+            application/pdf:
+              schema:
+                type: string
+                format: binary
+        '400':
+          description: Некорректная дата или формат.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+
+  /reports/tag-activity:
+    post:
+      tags:
+        - Reports
+      summary: Отчет по активности меток
+      description: Генерирует детальный отчет по активности выбранных меток за период.
+      operationId: generateTagActivityReport
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/TagActivityReportRequest'
+      responses:
+        '200':
+          description: Отчет успешно сгенерирован.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/TagActivityReport'
+            text/csv:
+              schema:
+                type: string
+        '400':
+          description: Некорректные параметры запроса.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+
+  # ==================== Health: Проверка работоспособности ====================
+  /health:
+    get:
+      tags:
+        - Health
+      summary: Проверка здоровья сервиса
+      description: Возвращает статус работы микросервиса и зависимых компонентов.
+      operationId: checkHealth
+      responses:
+        '200':
+          description: Сервис работает нормально.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HealthStatus'
+        '503':
+          description: Сервис недоступен или есть проблемы с зависимостями.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HealthStatus'
+
+  /health/readiness:
+    get:
+      tags:
+        - Health
+      summary: Проверка готовности к работе
+      description: Проверяет готовность сервиса принимать запросы.
+      operationId: checkReadiness
+      responses:
+        '200':
+          description: Сервис готов к работе.
+        '503':
+          description: Сервис не готов к работе.
+
+components:
+  schemas:
+    # --- Аналитические модели ---
+    SystemOverview:
+      type: object
+      required:
+        - timestamp
+        - time_range
+      properties:
+        timestamp:
+          type: string
+          format: date-time
+          description: Время формирования отчета
+        time_range:
+          type: string
+          description: Анализируемый временной диапазон
+        total_tags:
+          type: integer
+          description: Общее количество уникальных меток
+        active_tags:
+          type: integer
+          description: Количество активных меток (с данными за последний час)
+        total_anchors:
+          type: integer
+          description: Общее количество анкеров в системе
+        active_anchors:
+          type: integer
+          description: Количество активных анкеров
+        total_positions:
+          type: integer
+          description: Общее количество записей о позициях
+        avg_accuracy:
+          type: number
+          format: float
+          description: Средняя точность позиционирования (в метрах)
+        system_uptime:
+          type: number
+          format: float
+          description: Время работы системы (в часах)
+        data_points_per_minute:
+          type: number
+          format: float
+          description: Среднее количество точек данных в минуту
+        top_active_zones:
+          type: array
+          description: Топ-5 наиболее посещаемых зон
+          items:
+            type: object
+            properties:
+              zone_id:
+                type: string
+              zone_name:
+                type: string
+              visit_count:
+                type: integer
+
+    TagStatistics:
+      type: object
+      required:
+        - tag_id
+        - start_time
+        - end_time
+      properties:
+        tag_id:
+          type: string
+        start_time:
+          type: string
+          format: date-time
+        end_time:
+          type: string
+          format: date-time
+        total_positions:
+          type: integer
+          description: Общее количество записей о позициях
+        avg_speed:
+          type: number
+          format: float
+          description: Средняя скорость перемещения (м/с)
+        total_distance:
+          type: number
+          format: float
+          description: Общее пройденное расстояние (м)
+        avg_accuracy:
+          type: number
+          format: float
+          description: Средняя точность позиционирования
+        time_in_motion:
+          type: number
+          format: float
+          description: Время в движении (секунды)
+        time_at_rest:
+          type: number
+          format: float
+          description: Время в покое (секунды)
+        visited_zones:
+          type: array
+          description: Список посещенных зон
+          items:
+            type: object
+            properties:
+              zone_id:
+                type: string
+              zone_name:
+                type: string
+              entry_time:
+                type: string
+                format: date-time
+              exit_time:
+                type: string
+                format: date-time
+              duration_seconds:
+                type: number
+        movement_path:
+          type: array
+          description: Детальный путь перемещений (только если include_path=true)
+          items:
+            $ref: '#/components/schemas/Position'
+
+    ZoneOccupancy:
+      type: object
+      properties:
+        start_time:
+          type: string
+          format: date-time
+        end_time:
+          type: string
+          format: date-time
+        aggregation:
+          type: string
+        zones:
+          type: array
+          items:
+            type: object
+            properties:
+              zone_id:
+                type: string
+              zone_name:
+                type: string
+              max_occupancy:
+                type: integer
+                description: Максимальное одновременное количество меток
+              avg_occupancy:
+                type: number
+                format: float
+                description: Среднее количество меток
+              total_visits:
+                type: integer
+                description: Общее количество посещений
+              occupancy_timeline:
+                type: array
+                description: Динамика заполненности по времени
+                items:
+                  type: object
+                  properties:
+                    timestamp:
+                      type: string
+                      format: date-time
+                    count:
+                      type: integer
+
+    HeatmapData:
+      type: object
+      properties:
+        start_time:
+          type: string
+          format: date-time
+        end_time:
+          type: string
+          format: date-time
+        grid_size:
+          type: integer
+        bounds:
+          type: object
+          properties:
+            min_x:
+              type: number
+            max_x:
+              type: number
+            min_y:
+              type: number
+            max_y:
+              type: number
+        data:
+          type: array
+          description: Матрица интенсивности активности
+          items:
+            type: array
+            items:
+              type: number
+              format: float
+        max_intensity:
+          type: number
+          description: Максимальное значение интенсивности
+        total_points:
+          type: integer
+          description: Общее количество точек данных
+
+    # --- Модели отчетов ---
+    DailyReport:
+      type: object
+      properties:
+        report_date:
+          type: string
+          format: date
+        generated_at:
+          type: string
+          format: date-time
+        summary:
+          $ref: '#/components/schemas/SystemOverview'
+        peak_hours:
+          type: array
+          description: Часы наибольшей активности
+          items:
+            type: object
+            properties:
+              hour:
+                type: integer
+              activity_level:
+                type: number
+        busiest_zones:
+          type: array
+          description: Самые посещаемые зоны за день
+          items:
+            type: object
+            properties:
+              zone_id:
+                type: string
+              zone_name:
+                type: string
+              visit_count:
+                type: integer
+        anomalies:
+          type: array
+          description: Обнаруженные аномалии
+          items:
+            type: object
+            properties:
+              type:
+                type: string
+              description:
+                type: string
+              timestamp:
+                type: string
+                format: date-time
+
+    TagActivityReportRequest:
+      type: object
+      required:
+        - tag_ids
+        - start_time
+        - end_time
+      properties:
+        tag_ids:
+          type: array
+          minItems: 1
+          items:
+            type: string
+          description: Список меток для анализа
+        start_time:
+          type: string
+          format: date-time
+        end_time:
+          type: string
+          format: date-time
+        include_details:
+          type: boolean
+          default: false
+          description: Включать ли детализированные данные
+        format:
+          type: string
+          enum: [json, csv]
+          default: json
+
+    TagActivityReport:
+      type: object
+      properties:
+        generated_at:
+          type: string
+          format: date-time
+        parameters:
+          $ref: '#/components/schemas/TagActivityReportRequest'
+        tag_statistics:
+          type: array
+          items:
+            $ref: '#/components/schemas/TagStatistics'
+        comparative_analysis:
+          type: object
+          description: Сравнительный анализ меток
+          additionalProperties: true
+        recommendations:
+          type: array
+          description: Рекомендации по оптимизации
+          items:
+            type: string
+
+    # --- Модели здоровья ---
+    HealthStatus:
+      type: object
+      properties:
+        status:
+          type: string
+          enum: [healthy, degraded, unhealthy]
+        timestamp:
+          type: string
+          format: date-time
+        uptime:
+          type: number
+          format: float
+          description: Время работы сервиса (секунды)
+        dependencies:
+          type: array
+          description: Статус зависимых сервисов
+          items:
+            type: object
+            properties:
+              service:
+                type: string
+              status:
+                type: string
+              latency_ms:
+                type: number
+        metrics:
+          type: object
+          properties:
+            request_count:
+              type: integer
+            error_rate:
+              type: number
+            avg_response_time:
+              type: number
+
+    # --- Модели ошибок ---
+    Error:
+      type: object
+      properties:
+        error_code:
+          type: string
+          example: "DATA_NOT_AVAILABLE"
+        message:
+          type: string
+          example: "No data available for the specified time range"
+        timestamp:
+          type: string
+          format: date-time
+        details:
+          type: object
+          description: Дополнительная информация об ошибке

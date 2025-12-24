@@ -1,0 +1,14 @@
+image: ubuntu:22.04
+
+stages:
+  - test
+
+test_python_server:
+  stage: test
+  before_script:
+    - apt-get -y update
+    - apt-get install -y python3 python3-pip python3-dev curl
+  script:
+    - pip3 install --no-cache-dir -r requirements.txt
+    - echo "========= Тест миеросервиса positioning_service ========="
+    - pytest ./positioning_service/tests/test_api.py -v

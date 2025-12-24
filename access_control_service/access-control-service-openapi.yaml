@@ -1,0 +1,1121 @@
+openapi: 3.0.3
+info:
+  title: Compliance & Access Control Service API
+  description: |
+    Микросервис для управления геозонами, правилами доступа и контроля соблюдения политик безопасности.
+    Обеспечивает привязку меток к сущностям (сотрудники/оборудование), проверку разрешенных зон и генерацию оповещений о нарушениях.
+  version: 1.0.0
+  contact:
+    name: Команда разработки
+    email: security@rtls.example.com
+
+servers:
+  - url: http://localhost:8084/api/v1
+    description: Локальный сервер разработки
+  - url: https://compliance.rtls.example.com/api/v1
+    description: Продуктивный сервер
+
+tags:
+  - name: Entities
+    description: Управление сущностями (сотрудники, оборудование) и их привязкой к меткам
+  - name: Geofences
+    description: Управление геозонами (зонами безопасности, доступа и т.д.)
+  - name: Rules
+    description: Управление правилами доступа и контроля
+  - name: Compliance
+    description: Проверка соблюдения правил и мониторинг нарушений
+  - name: Health
+    description: Проверка работоспособности сервиса
+
+paths:
+
+  # ==================== Entities: Управление сущностями ====================
+  /entities:
+    get:
+      tags:
+        - Entities
+      summary: Получение списка всех зарегистрированных сущностей
+      description: Возвращает список сотрудников и оборудования с привязанными метками.
+      operationId: getAllEntities
+      parameters:
+        - name: entity_type
+          in: query
+          required: false
+          schema:
+            type: string
+            enum: [employee, equipment, all]
+            default: all
+          description: Тип сущности для фильтрации
+        - name: limit
+          in: query
+          required: false
+          schema:
+            type: integer
+            default: 100
+            maximum: 1000
+          description: Максимальное количество записей
+      responses:
+        '200':
+          description: Успешный запрос.
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/Entity'
+        '500':
+          description: Ошибка сервера.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+
+    post:
+      tags:
+        - Entities
+      summary: Регистрация новой сущности
+      description: Создает новую запись о сотруднике или оборудовании.
+      operationId: createEntity
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/EntityCreate'
+      responses:
+        '201':
+          description: Сущность успешно создана.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Entity'
+        '400':
+          description: Некорректные данные.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '409':
+          description: Конфликт (сущность с таким ID уже существует).
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+
+  /entities/{entity_id}:
+    get:
+      tags:
+        - Entities
+      summary: Получение информации о конкретной сущности
+      description: Возвращает детальную информацию о сущности по её ID.
+      operationId: getEntityById
+      parameters:
+        - name: entity_id
+          in: path
+          required: true
+          schema:
+            type: string
+          description: Уникальный идентификатор сущности
+      responses:
+        '200':
+          description: Успешный запрос.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Entity'
+        '404':
+          description: Сущность с указанным ID не найдена.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+
+    patch:
+      tags:
+        - Entities
+      summary: Обновление информации о сущности
+      description: Обновляет данные сущности (включая привязку/отвязку метки).
+      operationId: updateEntity
+      parameters:
+        - name: entity_id
+          in: path
+          required: true
+          schema:
+            type: string
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/EntityUpdate'
+      responses:
+        '200':
+          description: Сущность успешно обновлена.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Entity'
+        '404':
+          description: Сущность с указанным ID не найдена.
+        '400':
+          description: Некорректные данные.
+
+    delete:
+      tags:
+        - Entities
+      summary: Удаление сущности
+      description: Удаляет сущность из системы.
+      operationId: deleteEntity
+      parameters:
+        - name: entity_id
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        '204':
+          description: Сущность успешно удалена.
+        '404':
+          description: Сущность с указанным ID не найдена.
+
+  /entities/tag/{tag_id}:
+    get:
+      tags:
+        - Entities
+      summary: Получение сущности по привязанной метке
+      description: Возвращает сущность, к которой привязана указанная метка.
+      operationId: getEntityByTagId
+      parameters:
+        - name: tag_id
+          in: path
+          required: true
+          schema:
+            type: string
+          description: Идентификатор метки
+      responses:
+        '200':
+          description: Успешный запрос.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Entity'
+        '404':
+          description: Сущность с указанной меткой не найдена.
+
+  # ==================== Geofences: Управление геозонами ====================
+  /geofences:
+    get:
+      tags:
+        - Geofences
+      summary: Получение списка всех геозон
+      description: Возвращает список всех зарегистрированных геозон.
+      operationId: getAllGeofences
+      responses:
+        '200':
+          description: Успешный запрос.
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/Geofence'
+        '500':
+          description: Ошибка сервера.
+
+    post:
+      tags:
+        - Geofences
+      summary: Создание новой геозоны
+      description: Создает новую геозону (зону безопасности, доступа и т.д.).
+      operationId: createGeofence
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/GeofenceCreate'
+            examples:
+              rectangularZone:
+                summary: Прямоугольная зона
+                value:
+                  name: "Серверная комната"
+                  zone_type: "restricted"
+                  description: "Запрещенная зона для посторонних"
+                  shape: "rectangle"
+                  coordinates:
+                    min_x: 10.0
+                    max_x: 15.0
+                    min_y: 5.0
+                    max_y: 10.0
+                    min_z: 0.0
+                    max_z: 3.0
+              circularZone:
+                summary: Круговая зона
+                value:
+                  name: "Зона безопасности станка"
+                  zone_type: "danger"
+                  description: "Опасная зона вокруг станка"
+                  shape: "circle"
+                  coordinates:
+                    center_x: 25.0
+                    center_y: 30.0
+                    radius: 3.0
+      responses:
+        '201':
+          description: Геозона успешно создана.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Geofence'
+        '400':
+          description: Некорректные данные геозоны.
+
+  /geofences/{geofence_id}:
+    get:
+      tags:
+        - Geofences
+      summary: Получение информации о конкретной геозоне
+      description: Возвращает детальную информацию о геозоне.
+      operationId: getGeofenceById
+      parameters:
+        - name: geofence_id
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      responses:
+        '200':
+          description: Успешный запрос.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Geofence'
+        '404':
+          description: Геозона с указанным ID не найдена.
+
+    put:
+      tags:
+        - Geofences
+      summary: Обновление геозоны
+      description: Полностью обновляет информацию о геозоне.
+      operationId: updateGeofence
+      parameters:
+        - name: geofence_id
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/GeofenceCreate'
+      responses:
+        '200':
+          description: Геозона успешно обновлена.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Geofence'
+        '404':
+          description: Геозона с указанным ID не найдена.
+
+    delete:
+      tags:
+        - Geofences
+      summary: Удаление геозоны
+      description: Удаляет геозону из системы.
+      operationId: deleteGeofence
+      parameters:
+        - name: geofence_id
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      responses:
+        '204':
+          description: Геозона успешно удалена.
+        '404':
+          description: Геозона с указанным ID не найдена.
+
+  /geofences/check:
+    post:
+      tags:
+        - Geofences
+      summary: Проверка нахождения точки в геозонах
+      description: Проверяет, находится ли указанная точка внутри какой-либо геозоны.
+      operationId: checkPointInGeofences
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/PointCheckRequest'
+      responses:
+        '200':
+          description: Успешная проверка.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/GeofenceCheckResult'
+
+  # ==================== Rules: Управление правилами ====================
+  /rules:
+    get:
+      tags:
+        - Rules
+      summary: Получение списка всех правил
+      description: Возвращает список всех правил доступа и контроля.
+      operationId: getAllRules
+      parameters:
+        - name: is_active
+          in: query
+          required: false
+          schema:
+            type: boolean
+          description: Фильтр по активности правил
+      responses:
+        '200':
+          description: Успешный запрос.
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/Rule'
+
+    post:
+      tags:
+        - Rules
+      summary: Создание нового правила
+      description: Создает новое правило доступа или контроля.
+      operationId: createRule
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/RuleCreate'
+            examples:
+              timeBasedRule:
+                summary: Правило с временными ограничениями
+                value:
+                  name: "Доступ в серверную только в рабочее время"
+                  description: "Сотрудники могут входить в серверную только с 9:00 до 18:00"
+                  entity_type: "employee"
+                  geofence_id: "550e8400-e29b-41d4-a716-446655440000"
+                  action: "allow"
+                  schedule:
+                    days_of_week: [1, 2, 3, 4, 5]
+                    start_time: "09:00"
+                    end_time: "18:00"
+                  severity: "medium"
+              roleBasedRule:
+                summary: Правило на основе ролей
+                value:
+                  name: "Только инженеры к оборудованию"
+                  description: "Только сотрудники с ролью engineer могут приближаться к опасному оборудованию"
+                  entity_type: "employee"
+                  role_required: "engineer"
+                  geofence_id: "550e8400-e29b-41d4-a716-446655440001"
+                  action: "allow"
+                  severity: "high"
+      responses:
+        '201':
+          description: Правило успешно создано.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Rule'
+        '400':
+          description: Некорректные данные правила.
+
+  /rules/{rule_id}:
+    get:
+      tags:
+        - Rules
+      summary: Получение информации о правиле
+      description: Возвращает детальную информацию о правиле.
+      operationId: getRuleById
+      parameters:
+        - name: rule_id
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      responses:
+        '200':
+          description: Успешный запрос.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Rule'
+        '404':
+          description: Правило с указанным ID не найдено.
+
+    patch:
+      tags:
+        - Rules
+      summary: Обновление правила
+      description: Обновляет данные правила (например, активность).
+      operationId: updateRule
+      parameters:
+        - name: rule_id
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/RuleUpdate'
+      responses:
+        '200':
+          description: Правило успешно обновлено.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Rule'
+        '404':
+          description: Правило с указанным ID не найдено.
+
+    delete:
+      tags:
+        - Rules
+      summary: Удаление правила
+      description: Удаляет правило из системы.
+      operationId: deleteRule
+      parameters:
+        - name: rule_id
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      responses:
+        '204':
+          description: Правило успешно удалено.
+        '404':
+          description: Правило с указанным ID не найдено.
+
+  # ==================== Compliance: Проверка соблюдения ====================
+  /compliance/check:
+    post:
+      tags:
+        - Compliance
+      summary: Проверка соблюдения правил для позиции
+      description: Проверяет, соответствует ли текущая позиция сущности установленным правилам.
+      operationId: checkCompliance
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ComplianceCheckRequest'
+            examples:
+              singleCheck:
+                summary: Проверка одной позиции
+                value:
+                  entity_id: "emp-001"
+                  position:
+                    x: 12.5
+                    y: 7.8
+                    z: 1.2
+                    timestamp: "2023-11-28T14:30:00Z"
+      responses:
+        '200':
+          description: Результат проверки.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ComplianceCheckResult'
+
+  /compliance/check/batch:
+    post:
+      tags:
+        - Compliance
+      summary: Массовая проверка соблюдения правил
+      description: Проверяет соблюдение правил для массива позиций.
+      operationId: checkComplianceBatch
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/BatchComplianceCheckRequest'
+      responses:
+        '200':
+          description: Результаты массовой проверки.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/BatchComplianceCheckResult'
+
+  /compliance/violations:
+    get:
+      tags:
+        - Compliance
+      summary: Получение истории нарушений
+      description: Возвращает историю зафиксированных нарушений правил.
+      operationId: getViolations
+      parameters:
+        - name: start_time
+          in: query
+          required: false
+          schema:
+            type: string
+            format: date-time
+          description: Начало периода
+        - name: end_time
+          in: query
+          required: false
+          schema:
+            type: string
+            format: date-time
+          description: Конец периода
+        - name: entity_id
+          in: query
+          required: false
+          schema:
+            type: string
+          description: Фильтр по сущности
+        - name: severity
+          in: query
+          required: false
+          schema:
+            type: string
+            enum: [low, medium, high, critical]
+          description: Фильтр по серьезности
+        - name: limit
+          in: query
+          required: false
+          schema:
+            type: integer
+            default: 100
+            maximum: 1000
+      responses:
+        '200':
+          description: Успешный запрос.
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/Violation'
+
+  /compliance/violations/realtime:
+    get:
+      tags:
+        - Compliance
+      summary: WebSocket для получения нарушений в реальном времени
+      description: Устанавливает WebSocket соединение для получения уведомлений о нарушениях в реальном времени.
+      operationId: getRealtimeViolations
+      responses:
+        '101':
+          description: Switching Protocols
+        '500':
+          description: Ошибка сервера.
+
+components:
+  schemas:
+    # --- Сущности ---
+    EntityCreate:
+      type: object
+      required:
+        - entity_id
+        - name
+        - entity_type
+      properties:
+        entity_id:
+          type: string
+          description: Уникальный идентификатор сущности (например, emp-001)
+        name:
+          type: string
+          description: Имя сущности (ФИО сотрудника или название оборудования)
+        entity_type:
+          type: string
+          enum: [employee, equipment]
+          description: Тип сущности
+        tag_id:
+          type: string
+          description: Идентификатор метки для привязки (опционально)
+        department:
+          type: string
+          description: Отдел/подразделение (для сотрудников)
+        role:
+          type: string
+          description: Роль/должность (для сотрудников)
+        equipment_type:
+          type: string
+          description: Тип оборудования (для оборудования)
+        is_active:
+          type: boolean
+          default: true
+          description: Активна ли сущность
+        metadata:
+          type: object
+          description: Дополнительные метаданные
+
+    EntityUpdate:
+      type: object
+      properties:
+        name:
+          type: string
+        tag_id:
+          type: string
+          description: Привязать/отвязать метку (null для отвязки)
+        department:
+          type: string
+        role:
+          type: string
+        is_active:
+          type: boolean
+        metadata:
+          type: object
+
+    Entity:
+      type: object
+      required:
+        - entity_id
+        - name
+        - entity_type
+        - created_at
+      properties:
+        entity_id:
+          type: string
+        name:
+          type: string
+        entity_type:
+          type: string
+          enum: [employee, equipment]
+        tag_id:
+          type: string
+          nullable: true
+        department:
+          type: string
+          nullable: true
+        role:
+          type: string
+          nullable: true
+        equipment_type:
+          type: string
+          nullable: true
+        is_active:
+          type: boolean
+        metadata:
+          type: object
+        created_at:
+          type: string
+          format: date-time
+        updated_at:
+          type: string
+          format: date-time
+
+    # --- Геозоны ---
+    GeofenceCreate:
+      type: object
+      required:
+        - name
+        - zone_type
+        - shape
+        - coordinates
+      properties:
+        name:
+          type: string
+          description: Название геозоны
+        zone_type:
+          type: string
+          enum: [restricted, danger, safe, work_area, parking, other]
+          description: Тип зоны
+        description:
+          type: string
+          description: Описание зоны
+        shape:
+          type: string
+          enum: [rectangle, circle, polygon]
+          description: Форма зоны
+        coordinates:
+          type: object
+          description: Координаты зоны (формат зависит от shape)
+          properties:
+            # Для rectangle
+            min_x:
+              type: number
+            max_x:
+              type: number
+            min_y:
+              type: number
+            max_y:
+              type: number
+            min_z:
+              type: number
+            max_z:
+              type: number
+            # Для circle
+            center_x:
+              type: number
+            center_y:
+              type: number
+            radius:
+              type: number
+            # Для polygon
+            vertices:
+              type: array
+              items:
+                type: object
+                properties:
+                  x:
+                    type: number
+                  y:
+                    type: number
+        buffer_meters:
+          type: number
+          default: 0
+          description: Буферная зона вокруг геозоны (в метрах)
+        is_active:
+          type: boolean
+          default: true
+
+    Geofence:
+      allOf:
+        - $ref: '#/components/schemas/GeofenceCreate'
+        - type: object
+          properties:
+            geofence_id:
+              type: string
+              format: uuid
+            created_at:
+              type: string
+              format: date-time
+            updated_at:
+              type: string
+              format: date-time
+
+    PointCheckRequest:
+      type: object
+      required:
+        - x
+        - y
+      properties:
+        x:
+          type: number
+          format: float
+        y:
+          type: number
+          format: float
+        z:
+          type: number
+          format: float
+          default: 0.0
+        geofence_ids:
+          type: array
+          items:
+            type: string
+            format: uuid
+          description: Список ID геозон для проверки (если не указано - проверяются все)
+
+    GeofenceCheckResult:
+      type: object
+      properties:
+        point:
+          type: object
+          properties:
+            x:
+              type: number
+            y:
+              type: number
+            z:
+              type: number
+        intersections:
+          type: array
+          items:
+            type: object
+            properties:
+              geofence_id:
+                type: string
+                format: uuid
+              geofence_name:
+                type: string
+              zone_type:
+                type: string
+              is_inside:
+                type: boolean
+
+    # --- Правила ---
+    RuleCreate:
+      type: object
+      required:
+        - name
+        - entity_type
+        - geofence_id
+        - action
+      properties:
+        name:
+          type: string
+          description: Название правила
+        description:
+          type: string
+          description: Описание правила
+        entity_type:
+          type: string
+          enum: [employee, equipment, all]
+          description: Тип сущности, к которой применяется правило
+        entity_id:
+          type: string
+          description: Конкретная сущность (если null - применяется ко всем)
+        role_required:
+          type: string
+          description: Требуемая роль (только для сотрудников)
+        geofence_id:
+          type: string
+          format: uuid
+          description: ID геозоны, к которой применяется правило
+        action:
+          type: string
+          enum: [allow, deny, alert]
+          description: Действие правила
+        schedule:
+          type: object
+          description: Расписание действия правила
+          properties:
+            days_of_week:
+              type: array
+              items:
+                type: integer
+                minimum: 0
+                maximum: 6
+              description: Дни недели (0-воскресенье, 6-суббота)
+            start_time:
+              type: string
+              pattern: '^([0-1][0-9]|2[0-3]):[0-5][0-9]$'
+              description: Время начала (HH:MM)
+            end_time:
+              type: string
+              pattern: '^([0-1][0-9]|2[0-3]):[0-5][0-9]$'
+              description: Время окончания (HH:MM)
+        severity:
+          type: string
+          enum: [low, medium, high, critical]
+          default: medium
+          description: Серьезность нарушения
+        is_active:
+          type: boolean
+          default: true
+        metadata:
+          type: object
+
+    RuleUpdate:
+      type: object
+      properties:
+        name:
+          type: string
+        description:
+          type: string
+        is_active:
+          type: boolean
+        severity:
+          type: string
+          enum: [low, medium, high, critical]
+        metadata:
+          type: object
+
+    Rule:
+      allOf:
+        - $ref: '#/components/schemas/RuleCreate'
+        - type: object
+          properties:
+            rule_id:
+              type: string
+              format: uuid
+            created_at:
+              type: string
+              format: date-time
+            updated_at:
+              type: string
+              format: date-time
+
+    # --- Проверка соблюдения ---
+    ComplianceCheckRequest:
+      type: object
+      required:
+        - entity_id
+        - position
+      properties:
+        entity_id:
+          type: string
+          description: ID сущности
+        position:
+          type: object
+          required:
+            - x
+            - y
+            - timestamp
+          properties:
+            x:
+              type: number
+              format: float
+            y:
+              type: number
+              format: float
+            z:
+              type: number
+              format: float
+              default: 0.0
+            timestamp:
+              type: string
+              format: date-time
+
+    ComplianceCheckResult:
+      type: object
+      properties:
+        entity_id:
+          type: string
+        position:
+          type: object
+          properties:
+            x:
+              type: number
+            y:
+              type: number
+            z:
+              type: number
+            timestamp:
+              type: string
+              format: date-time
+        is_compliant:
+          type: boolean
+          description: Соответствует ли позиция всем правилам
+        violations:
+          type: array
+          items:
+            $ref: '#/components/schemas/Violation'
+        warnings:
+          type: array
+          items:
+            $ref: '#/components/schemas/Violation'
+          description: Предупреждения (низкая серьезность)
+
+    BatchComplianceCheckRequest:
+      type: object
+      properties:
+        checks:
+          type: array
+          items:
+            $ref: '#/components/schemas/ComplianceCheckRequest'
+
+    BatchComplianceCheckResult:
+      type: object
+      properties:
+        results:
+          type: array
+          items:
+            $ref: '#/components/schemas/ComplianceCheckResult'
+        summary:
+          type: object
+          properties:
+            total_checks:
+              type: integer
+            compliant:
+              type: integer
+            violations:
+              type: integer
+            warnings:
+              type: integer
+
+    Violation:
+      type: object
+      required:
+        - violation_id
+        - rule_id
+        - entity_id
+        - severity
+        - timestamp
+      properties:
+        violation_id:
+          type: string
+          format: uuid
+        rule_id:
+          type: string
+          format: uuid
+        rule_name:
+          type: string
+        entity_id:
+          type: string
+        entity_name:
+          type: string
+        entity_type:
+          type: string
+        geofence_id:
+          type: string
+          format: uuid
+        geofence_name:
+          type: string
+        position:
+          type: object
+          properties:
+            x:
+              type: number
+            y:
+              type: number
+            z:
+              type: number
+        severity:
+          type: string
+          enum: [low, medium, high, critical]
+        description:
+          type: string
+          description: Описание нарушения
+        timestamp:
+          type: string
+          format: date-time
+        acknowledged:
+          type: boolean
+          default: false
+          description: Подтверждено ли нарушение оператором
+        acknowledged_by:
+          type: string
+          nullable: true
+        acknowledged_at:
+          type: string
+          format: date-time
+          nullable: true
+
+    # --- Модели ошибок ---
+    Error:
+      type: object
+      properties:
+        error_code:
+          type: string
+          example: "ENTITY_NOT_FOUND"
+        message:
+          type: string
+          example: "Entity with ID 'emp-001' not found"
+        timestamp:
+          type: string
+          format: date-time
+        details:
+          type: object
+          description: Дополнительная информация об ошибке
+
+    ValidationError:
+      allOf:
+        - $ref: '#/components/schemas/Error'
+        - type: object
+          properties:
+            validation_errors:
+              type: array
+              items:
+                type: object
+                properties:
+                  field:
+                    type: string
+                  error:
+                    type: string
