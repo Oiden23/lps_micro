@@ -1,0 +1,87 @@
+version: '3.8'
+
+services:
+  data-aggregator-service:
+    build: .
+    ports:
+      - "8083:8083"
+    environment:
+      - ENVIRONMENT=development
+      - DATABASE_URL=sqlite:////data/data_aggregator.db
+      - POSITIONING_SERVICE_URL=http://positioning-service:8081/api/v1
+      - ALERT_SERVICE_URL=http://alert-service:8082/api/v1
+      - NOTIFICATION_SERVICE_URL=http://notification-service:8084/api/v1
+      - AGGREGATION_INTERVAL_MINUTES=5
+    volumes:
+      - ./data:/data
+      - ./logs:/app/logs
+    depends_on:
+      - positioning-service
+      - alert-service
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8083/api/v1/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 40s
+
+  positioning-service:
+    image: positioning-service:latest
+    ports:
+      - "8081:8081"
+    environment:
+      - ENVIRONMENT=development
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8081/api/v1/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 30s
+
+  alert-service:
+    image: alert-service:latest
+    ports:
+      - "8082:8082"
+    environment:
+      - ENVIRONMENT=development
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8082/api/v1/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 30s
+
+  notification-service:
+    image: notification-service:latest
+    ports:
+      - "8084:8084"
+    environment:
+      - ENVIRONMENT=development
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8084/api/v1/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 30s
+
+  gateway-service:
+    image: gateway-service:latest
+    ports:
+      - "8000:8000"
+    environment:
+      - ENVIRONMENT=development
+      - POSITIONING_SERVICE_URL=http://positioning-service:8081
+      - ANALYTICS_SERVICE_URL=http://data-aggregator-service:8083
+      - ALERT_SERVICE_URL=http://alert-service:8082
+      - NOTIFICATION_SERVICE_URL=http://notification-service:8084
+    depends_on:
+      - data-aggregator-service
+      - positioning-service
+      - alert-service
+      - notification-service
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8000/api/v1/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 40s

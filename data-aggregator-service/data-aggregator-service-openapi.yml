@@ -1,0 +1,641 @@
+openapi: 3.0.3
+info:
+  title: Data Aggregator Service API
+  description: |
+    Микросервис для агрегации данных о перемещениях объектов, генерации отчетов и аналитики.
+    Периодически собирает данные от positioning-service, агрегирует их и предоставляет аналитические отчеты.
+  version: 1.0.0
+  contact:
+    name: Команда разработки
+    email: analytics@rtls.example.com
+servers:
+  - url: http://localhost:8085/api/v1
+    description: Локальный сервер разработки
+  - url: https://analytics.rtls.example.com/api/v1
+    description: Продуктивный сервер
+tags:
+  - name: Reports
+    description: Генерация и получение отчетов
+  - name: Aggregation
+    description: Управление процессами агрегации данных
+  - name: Export
+    description: Экспорт данных в различные форматы
+  - name: Analytics
+    description: Аналитические функции и обнаружение аномалий
+  - name: Health
+    description: Проверка работоспособности сервиса
+
+paths:
+  /aggregation/trigger:
+    post:
+      tags:
+        - Aggregation
+      summary: Запуск процесса агрегации данных
+      description: Ручной запуск процесса агрегации данных за указанный период
+      operationId: triggerAggregation
+      requestBody:
+        required: false
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                start_time:
+                  type: string
+                  format: date-time
+                  description: Начало периода для агрегации
+                end_time:
+                  type: string
+                  format: date-time
+                  description: Конец периода для агрегации
+                force:
+                  type: boolean
+                  default: false
+                  description: Принудительная агрегация, даже если данные уже существуют
+      responses:
+        '202':
+          description: Процесс агрегации запущен
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  task_id:
+                    type: string
+                    description: Идентификатор задачи агрегации
+                  status:
+                    type: string
+                    enum: [queued, started]
+        '400':
+          description: Некорректные параметры запроса
+
+  /reports/zone-occupancy:
+    get:
+      tags:
+        - Reports
+      summary: Отчет по посещаемости зон
+      description: Возвращает данные о посещаемости различных зон за указанный период
+      operationId: getZoneOccupancyReport
+      parameters:
+        - name: start_time
+          in: query
+          required: true
+          schema:
+            type: string
+            format: date-time
+        - name: end_time
+          in: query
+          required: true
+          schema:
+            type: string
+            format: date-time
+        - name: zone_ids
+          in: query
+          required: false
+          schema:
+            type: array
+            items:
+              type: string
+        - name: entity_types
+          in: query
+          required: false
+          schema:
+            type: array
+            items:
+              type: string
+              enum: [employee, equipment]
+      responses:
+        '200':
+          description: Успешный запрос
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ZoneOccupancyReport'
+        '400':
+          description: Некорректные параметры запроса
+
+  /reports/time-in-zone:
+    get:
+      tags:
+        - Reports
+      summary: Отчет по времени пребывания в зонах
+      description: Возвращает данные о времени, проведенном сущностями в различных зонах
+      operationId: getTimeInZoneReport
+      parameters:
+        - name: entity_id
+          in: query
+          required: false
+          schema:
+            type: string
+        - name: zone_id
+          in: query
+          required: false
+          schema:
+            type: string
+        - name: start_time
+          in: query
+          required: true
+          schema:
+            type: string
+            format: date-time
+        - name: end_time
+          in: query
+          required: true
+          schema:
+            type: string
+            format: date-time
+        - name: group_by
+          in: query
+          required: false
+          schema:
+            type: string
+            enum: [hour, day, week, month]
+            default: day
+      responses:
+        '200':
+          description: Успешный запрос
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/TimeInZoneReport'
+        '400':
+          description: Некорректные параметры запроса
+
+  /reports/workflow-efficiency:
+    get:
+      tags:
+        - Reports
+      summary: Отчет по эффективности рабочих зон
+      description: Анализ эффективности использования рабочих зон и маршрутов
+      operationId: getWorkflowEfficiencyReport
+      parameters:
+        - name: start_time
+          in: query
+          required: true
+          schema:
+            type: string
+            format: date-time
+        - name: end_time
+          in: query
+          required: true
+          schema:
+            type: string
+            format: date-time
+        - name: zone_ids
+          in: query
+          required: false
+          schema:
+            type: array
+            items:
+              type: string
+        - name: entity_ids
+          in: query
+          required: false
+          schema:
+            type: array
+            items:
+              type: string
+      responses:
+        '200':
+          description: Успешный запрос
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/WorkflowEfficiencyReport'
+        '400':
+          description: Некорректные параметры запроса
+    
+  /analytics/anomalies:
+    get:
+      tags:
+        - Analytics
+      summary: Обнаружение аномалий в поведении
+      description: Выявление аномалий в перемещениях сотрудников и оборудовании
+      operationId: detectAnomalies
+      parameters:
+        - name: start_time
+          in: query
+          required: true
+          schema:
+            type: string
+            format: date-time
+        - name: end_time
+          in: query
+          required: true
+          schema:
+            type: string
+            format: date-time
+        - name: entity_ids
+          in: query
+          required: false
+          schema:
+            type: array
+            items:
+              type: string
+        - name: anomaly_types
+          in: query
+          required: false
+          schema:
+            type: array
+            items:
+              type: string
+              enum: [unexpected_zone, unusual_time, abnormal_speed, prolonged_stay]
+      responses:
+        '200':
+          description: Успешный запрос
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AnomalyDetectionReport'
+        '400':
+          description: Некорректные параметры запроса
+
+  /export/csv:
+    get:
+      tags:
+        - Export
+      summary: Экспорт данных в CSV
+      description: Экспорт отчета в формате CSV
+      operationId: exportToCSV
+      parameters:
+        - name: report_type
+          in: query
+          required: true
+          schema:
+            type: string
+            enum: [zone_occupancy, time_in_zone, workflow_efficiency, anomalies]
+        - name: start_time
+          in: query
+          required: true
+          schema:
+            type: string
+            format: date-time
+        - name: end_time
+          in: query
+          required: true
+          schema:
+            type: string
+            format: date-time
+      responses:
+        '200':
+          description: Файл CSV для скачивания
+          content:
+            text/csv:
+              schema:
+                type: string
+                format: binary
+        '400':
+          description: Некорректные параметры запроса
+
+  /export/excel:
+    get:
+      tags:
+        - Export
+      summary: Экспорт данных в Excel
+      description: Экспорт отчета в формате Excel
+      operationId: exportToExcel
+      parameters:
+        - name: report_type
+          in: query
+          required: true
+          schema:
+            type: string
+            enum: [zone_occupancy, time_in_zone, workflow_efficiency, anomalies]
+        - name: start_time
+          in: query
+          required: true
+          schema:
+            type: string
+            format: date-time
+        - name: end_time
+          in: query
+          required: true
+          schema:
+            type: string
+            format: date-time
+      responses:
+        '200':
+          description: Файл Excel для скачивания
+          content:
+            application/vnd.openxmlformats-officedocument.spreadsheetml.sheet:
+              schema:
+                type: string
+                format: binary
+        '400':
+          description: Некорректные параметры запроса
+
+  /export/pdf:
+    get:
+      tags:
+        - Export
+      summary: Экспорт данных в PDF
+      description: Экспорт отчета в формате PDF с визуализацией
+      operationId: exportToPDF
+      parameters:
+        - name: report_type
+          in: query
+          required: true
+          schema:
+            type: string
+            enum: [zone_occupancy, time_in_zone, workflow_efficiency, anomalies]
+        - name: start_time
+          in: query
+          required: true
+          schema:
+            type: string
+            format: date-time
+        - name: end_time
+          in: query
+          required: true
+          schema:
+            type: string
+            format: date-time
+        - name: include_charts
+          in: query
+          required: false
+          schema:
+            type: boolean
+            default: true
+      responses:
+        '200':
+          description: Файл PDF для скачивания
+          content:
+            application/pdf:
+              schema:
+                type: string
+                format: binary
+        '400':
+          description: Некорректные параметры запроса
+
+  /health:
+    get:
+      tags:
+        - Health
+      summary: Проверка работоспособности сервиса
+      description: Проверяет статус сервиса и его зависимости
+      operationId: healthCheck
+      responses:
+        '200':
+          description: Сервис работает нормально
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HealthStatus'
+        '503':
+          description: Сервис недоступен
+
+components:
+  schemas:
+    ZoneOccupancyReport:
+      type: object
+      properties:
+        report_id:
+          type: string
+        generated_at:
+          type: string
+          format: date-time
+        period:
+          type: object
+          properties:
+            start_time:
+              type: string
+              format: date-time
+            end_time:
+              type: string
+              format: date-time
+        zones:
+          type: array
+          items:
+            type: object
+            properties:
+              zone_id:
+                type: string
+              zone_name:
+                type: string
+              zone_type:
+                type: string
+              total_visits:
+                type: integer
+              unique_entities:
+                type: integer
+              avg_duration_minutes:
+                type: number
+              peak_hour:
+                type: integer
+              hourly_distribution:
+                type: object
+                additionalProperties:
+                  type: integer
+              entity_breakdown:
+                type: object
+                properties:
+                  employees:
+                    type: integer
+                  equipment:
+                    type: integer
+
+    TimeInZoneReport:
+      type: object
+      properties:
+        report_id:
+          type: string
+        generated_at:
+          type: string
+          format: date-time
+        period:
+          type: object
+          properties:
+            start_time:
+              type: string
+              format: date-time
+            end_time:
+              type: string
+              format: date-time
+        group_by:
+          type: string
+        data:
+          type: array
+          items:
+            type: object
+            properties:
+              entity_id:
+                type: string
+              entity_name:
+                type: string
+              entity_type:
+                type: string
+              zone_id:
+                type: string
+              zone_name:
+                type: string
+              total_time_minutes:
+                type: number
+              visits_count:
+                type: integer
+              avg_visit_duration:
+                type: number
+              first_entry:
+                type: string
+                format: date-time
+              last_exit:
+                type: string
+                format: date-time
+
+    WorkflowEfficiencyReport:
+      type: object
+      properties:
+        report_id:
+          type: string
+        generated_at:
+          type: string
+          format: date-time
+        period:
+          type: object
+          properties:
+            start_time:
+              type: string
+              format: date-time
+            end_time:
+              type: string
+            format: date-time
+        zones:
+          type: array
+          items:
+            type: object
+            properties:
+              zone_id:
+                type: string
+              zone_name:
+                type: string
+              utilization_rate:
+                type: number
+                description: Доля времени, когда зона использовалась
+              avg_entities_per_hour:
+                type: number
+              bottleneck_score:
+                type: number
+                minimum: 0
+                maximum: 1
+                description: Оценка узкого места (0 - нет, 1 - критическое)
+              peak_hours:
+                type: array
+                items:
+                  type: integer
+              workflow_metrics:
+                type: object
+                properties:
+                  avg_transition_time:
+                    type: number
+                    description: Среднее время перехода между зонами
+                  common_routes:
+                    type: array
+                    items:
+                      type: object
+                      properties:
+                        route:
+                          type: array
+                          items:
+                            type: string
+                        frequency:
+                          type: integer
+
+    AnomalyDetectionReport:
+      type: object
+      properties:
+        report_id:
+          type: string
+        generated_at:
+          type: string
+          format: date-time
+        period:
+          type: object
+          properties:
+            start_time:
+              type: string
+              format: date-time
+            end_time:
+              type: string
+              format: date-time
+        anomalies:
+          type: array
+          items:
+            type: object
+            properties:
+              anomaly_id:
+                type: string
+              timestamp:
+                type: string
+                format: date-time
+              anomaly_type:
+                type: string
+                enum: [unexpected_zone, unusual_time, abnormal_speed, prolonged_stay]
+              entity_id:
+                type: string
+              entity_name:
+                type: string
+              entity_type:
+                type: string
+              zone_id:
+                type: string
+                nullable: true
+              zone_name:
+                type: string
+                nullable: true
+              position:
+                type: object
+                properties:
+                  x:
+                    type: number
+                  y:
+                    type: number
+                  z:
+                    type: number
+              description:
+                type: string
+              severity:
+                type: string
+                enum: [low, medium, high, critical]
+              confidence:
+                type: number
+                minimum: 0
+                maximum: 1
+              related_violations:
+                type: array
+                items:
+                  type: string
+
+    HealthStatus:
+      type: object
+      properties:
+        status:
+          type: string
+          enum: ['healthy', 'degraded', 'unhealthy']
+        timestamp:
+          type: string
+          format: date-time
+        version:
+          type: string
+        dependencies:
+          type: object
+          properties:
+            database:
+              type: object
+              properties:
+                status:
+                  type: string
+                latency_ms:
+                  type: number
+            positioning_service:
+              type: object
+              properties:
+                status:
+                  type: string
+                latency_ms:
+                  type: number
+            access_control_service:
+              type: object
+              properties:
+                status:
+                  type: string
+                latency_ms:
+                  type: number
